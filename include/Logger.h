@@ -5,6 +5,7 @@
 #ifndef FRAME_LOGGER_H
 #define FRAME_LOGGER_H
 
+#include <iostream>
 #include <string>
 #include <sstream>
 #include <mutex>
@@ -14,10 +15,8 @@
 #include <spdlog/async.h>
 
 #define LOG(level) \
-    do \
-    { \
-       SpdLogger* logger = SpdLogger::GetInstance() \
-    } while (0)
+    SpdLogger::GetInstance()->createLogMessage(stringToLogLevel(#level), __FILE_NAME__, __LINE__)
+
 
 enum class LogLevel {
     DEBUG,
@@ -26,6 +25,21 @@ enum class LogLevel {
     ERROR,
     FATAL
 };
+
+inline LogLevel stringToLogLevel(const string& level) {
+    if (level == "DEBUG") {
+        return LogLevel::DEBUG;
+    } else if (level == "INFO") {
+        return LogLevel::INFO;
+    } else if (level == "WARN") {
+        return LogLevel::WARN;
+    } else if (level == "ERROR") {
+        return LogLevel::ERROR;
+    } else if (level == "FATAL") {
+        return LogLevel::FATAL;
+    }
+    return LogLevel::FATAL;
+}
 
 // 日志配置项
 struct LoggerConfig {
@@ -43,7 +57,7 @@ struct LoggerConfig {
         maxFiles(10),
         asyncMode(true),
         consoleOutput(true),
-        pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] [%t] %v") {}
+        pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] %v") {}
 };
 
 class SpdLogger;
@@ -76,11 +90,17 @@ private:
 
 class SpdLogger {
 public:
-    static SpdLogger *GetInstance(const LoggerConfig* conf) {
+    static SpdLogger *GetInstance() {
         if (instance == nullptr) {
-            instance = new SpdLogger(conf);
+            instance = new SpdLogger();
         }
         return instance;
+    }
+
+    ~SpdLogger() {
+        if (instance != nullptr) {
+            flush();
+        }
     }
 
     void initialize() {
@@ -88,34 +108,34 @@ public:
 
         // 文件
         auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
-            config_->logPath,
-            config_->maxFileSize,
-            config_->maxFiles
+            conf_->logPath,
+            conf_->maxFileSize,
+            conf_->maxFiles
         );
         sinks.push_back(file_sink);
         // 控制台
-        if (config_->consoleOutput) {
+        if (conf_->consoleOutput) {
             auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
             sinks.push_back(console_sink);
         }
 
         // 创建
-        if (config_->asyncMode) {
-            spdlog::init_thread_pool(8192, 1);
-            logger_ = std::make_unique<spdlog::async_logger>(
+        if (conf_->asyncMode) {
+            logger_ = std::make_shared<spdlog::async_logger>(
                 "async_logger",
                 sinks.begin(),
                 sinks.end(),
-                spdlog::thread_pool(),
-                spdlog::async_overflow_policy::overrun_oldest
+                thread_pool,
+                spdlog::async_overflow_policy::block
                 );
         } else {
-            logger_ = std::make_unique<spdlog::logger>("sync_logger", sinks.begin(), sinks.end());
-
+            logger_ = std::make_shared<spdlog::logger>(
+                "sync_logger",
+                sinks.begin(),
+                sinks.end());
         }
-
-        setPattern(config_->pattern);
-        logger_->set_level(convertLevel(config_->minLogLevel));
+        setPattern(conf_->pattern);
+        logger_->set_level(convertLevel(conf_->minLogLevel));
     }
 
     void log(const LogMessage &message) {
@@ -144,6 +164,7 @@ public:
 
     void flush() const {
         logger_->flush();
+        spdlog::shutdown();
     }
 
     void setPattern(const std::string &pattern) const {
@@ -151,19 +172,26 @@ public:
     }
 
     // 便捷日志方法
-    void createLogMessage(LogLevel level, const char* file, int line) {
-        LogMessage(this, level, file, line);
+    LogMessage createLogMessage(LogLevel level, const char* file, int line) {
+        return LogMessage(this, level, file, line);
     }
+
+    static void set_config(LoggerConfig *conf);
+
 protected:
-    explicit SpdLogger(const LoggerConfig* config) {
-        config_ = config;
-        initialize();
+    explicit SpdLogger() {
+        mutex_.lock();
+        if (logger_ == nullptr) {
+            initialize();
+        }
+        mutex_.unlock();
     }
 
 private:
     static SpdLogger *instance;
-    std::unique_ptr<spdlog::logger> logger_;
-    const LoggerConfig *config_;
+    const shared_ptr<spdlog::details::thread_pool> thread_pool = std::make_shared<spdlog::details::thread_pool>(8192, 1);
+    std::shared_ptr<spdlog::logger> logger_;
+    static LoggerConfig *conf_;
     std::mutex mutex_;
     static spdlog::level::level_enum convertLevel(LogLevel level) {
         switch (level) {
@@ -181,8 +209,8 @@ private:
                 return spdlog::level::info;
         }
     }
-    [[nodiscard]] bool shouldLog(LogLevel level) const {
-        return level >= config_->minLogLevel;
+    [[nodiscard]] bool shouldLog(LogLevel level) {
+        return level >= conf_->minLogLevel;
     }
 };
 
@@ -191,6 +219,13 @@ inline LogMessage::~LogMessage() {
         loggerMethod_->log(*this);
     }
 }
+
+inline void SpdLogger::set_config(LoggerConfig* conf) {
+    conf_ = conf;
+}
+
+LoggerConfig* SpdLogger::conf_ = nullptr;
+
 
 
 #endif //FRAME_LOGGER_H

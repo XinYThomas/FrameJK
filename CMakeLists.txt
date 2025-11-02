@@ -31,6 +31,9 @@ add_executable(${APPNAME} main.cpp
         include/Tool.h
         include/ConfLoad.h
         include/InitConf.h
+        include/TaskQueue.h
+        include/CommentCtrl.h
+        include/CreateShare.h
 )
 
 target_link_libraries(${APPNAME}

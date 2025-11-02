@@ -11,7 +11,6 @@
 #include <Tool.h>
 #include "fstream"
 #include <cjson/cJSON.h>
-
 using namespace std;
 
 class ConfLoad {

@@ -51,11 +51,26 @@ private:
     }
 };
 
+// 任务上下文
+struct TaskCtx {
+    // Todo 补充任务上下文
+
+};
+
+// 测试专用
+struct TestCtx {
+    int f1;
+    int f2;
+    int f3;
+};
+
 /*
  * 传递上下文
  */
 struct TransCtx {
-    unordered_map<string, ResponseCtx> responseCtx;
+    unordered_map<string, ResponseCtx> responseCtx_;
+    TaskCtx taskCtx_;
+    TestCtx testCtx_;
 };
 
 #endif //FRAME_TRANSCTX_H
